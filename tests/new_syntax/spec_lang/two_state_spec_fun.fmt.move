@@ -33,8 +33,8 @@ module Specs::TwoStateSpec {
     }
 
     spec increment_twice {
-        ensures..S |~ counter_increased(addr);
-        ensures S..|~ counter_increased(addr);
+        ensures ..S |~ counter_increased(addr);
+        ensures S.. |~ counter_increased(addr);
     }
 
     spec fun counter_is_positive(addr: address): bool {
@@ -52,8 +52,8 @@ module Specs::TwoStateSpec {
     spec apply {
         pragma opaque;
         reads_of<f> Config;
-        modifies_of<f> (a: address) Counter[a];
-        ensures ensures_of<f> (x);
-        aborts_if aborts_of<f> (x);
+        modifies_of<f>(a: address) Counter[a];
+        ensures ensures_of<f>(x);
+        aborts_if aborts_of<f>(x);
     }
 }

@@ -4,7 +4,7 @@ module Specs::Behavioral {
     }
 
     spec apply {
-        ensures ensures_of<f> (x, result);
+        ensures ensures_of<f>(x, result);
     }
 
     fun apply_may_abort(f: |u64| u64, x: u64): u64 {
@@ -12,8 +12,8 @@ module Specs::Behavioral {
     }
 
     spec apply_may_abort {
-        aborts_if aborts_of<f> (x);
-        ensures ensures_of<f> (x, result);
+        aborts_if aborts_of<f>(x);
+        ensures ensures_of<f>(x, result);
     }
 
     fun apply_no_abort(f: |u64| u64, x: u64): u64 {
@@ -21,9 +21,9 @@ module Specs::Behavioral {
     }
 
     spec apply_no_abort {
-        requires !aborts_of<f> (x);
+        requires !aborts_of<f>(x);
         aborts_if false;
-        ensures ensures_of<f> (x, result);
+        ensures ensures_of<f>(x, result);
     }
 
     fun apply_seq(f: |u64| u64 has copy, x: u64): u64 {
@@ -31,10 +31,10 @@ module Specs::Behavioral {
     }
 
     spec apply_seq {
-        let y = result_of<f> (x);
-        requires requires_of<f> (x) && requires_of<f> (y);
-        aborts_if aborts_of<f> (x) || aborts_of<f> (y);
-        ensures result == result_of<f> (y);
+        let y = result_of<f>(x);
+        requires requires_of<f>(x) && requires_of<f>(y);
+        aborts_if aborts_of<f>(x) || aborts_of<f>(y);
+        ensures result == result_of<f>(y);
     }
 
     fun double(x: u64): u64 {
@@ -50,6 +50,6 @@ module Specs::Behavioral {
     }
 
     spec test_known {
-        ensures result == result_of<double> (5);
+        ensures result == result_of<double>(5);
     }
 }

@@ -18,7 +18,7 @@ module Specs::AccessSpecifiers {
     spec apply_reads {
         pragma opaque;
         reads_of<f> Config;
-        ensures result == result_of<f> (x);
+        ensures result == result_of<f>(x);
     }
 
     fun apply_writes(f: |address| u64, x: address): u64 {
@@ -28,9 +28,9 @@ module Specs::AccessSpecifiers {
     spec apply_writes {
         pragma opaque;
         modifies Data[x];
-        modifies_of<f> (a: address) Data[a];
-        ensures ensures_of<f> (x, result);
-        aborts_if aborts_of<f> (x);
+        modifies_of<f>(a: address) Data[a];
+        ensures ensures_of<f>(x, result);
+        aborts_if aborts_of<f>(x);
     }
 
     fun apply_mixed(f: |address| u64, x: address): u64 {
@@ -41,9 +41,9 @@ module Specs::AccessSpecifiers {
         pragma opaque;
         modifies Data[x];
         reads_of<f> Config;
-        modifies_of<f> (a: address) Data[a];
-        ensures ensures_of<f> (x, result);
-        aborts_if aborts_of<f> (x);
+        modifies_of<f>(a: address) Data[a];
+        ensures ensures_of<f>(x, result);
+        aborts_if aborts_of<f>(x);
     }
 
     fun my_fun(x: address): u64 acquires Data {

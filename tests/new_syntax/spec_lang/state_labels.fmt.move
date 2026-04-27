@@ -23,10 +23,10 @@ module Specs::StateLabels {
     }
 
     spec double_update {
-        ensures..S |~ update<Counter> (
+        ensures ..S |~ update<Counter>(
             addr, update_field(old(Counter[addr]), value, v1)
         );
-        ensures S..|~ update<Counter> (
+        ensures S.. |~ update<Counter>(
             addr, update_field(S |~ Counter[addr], value, v2)
         );
     }
@@ -38,9 +38,9 @@ module Specs::StateLabels {
     }
 
     spec double_remove {
-        ensures..S |~ result_1 == result_of<remove_resource> (addr1);
-        ensures S..|~ result_2 == result_of<remove_resource> (addr2);
-        aborts_if aborts_of<remove_resource> (addr2);
+        ensures ..S |~ result_1 == result_of<remove_resource>(addr1);
+        ensures S.. |~ result_2 == result_of<remove_resource>(addr2);
+        aborts_if aborts_of<remove_resource>(addr2);
     }
 
     fun create_then_read(account: &signer, addr: address): u64 acquires Resource {
@@ -49,8 +49,8 @@ module Specs::StateLabels {
     }
 
     spec create_then_read {
-        ensures S..|~ result == result_of<read_resource> (addr);
-        ensures S |~ exists<Resource> (signer::address_of(account));
+        ensures S.. |~ result == result_of<read_resource>(addr);
+        ensures S |~ exists<Resource>(signer::address_of(account));
         ensures S |~ Resource[signer::address_of(account)] == Resource { value: 42 };
     }
 
@@ -65,8 +65,8 @@ module Specs::StateLabels {
     }
 
     spec three_calls {
-        ensures..s1 |~ ensures_of<f> (x);
-        ensures s1..s2 |~ ensures_of<g> (x);
-        ensures s2..|~ ensures_of<h> (x);
+        ensures ..s1 |~ ensures_of<f>(x);
+        ensures s1..s2 |~ ensures_of<g>(x);
+        ensures s2.. |~ ensures_of<h>(x);
     }
 }

@@ -794,12 +794,25 @@ impl<'a> Parser<'a> {
                         collect_expr(p, tar);
                     }
                 }
-                SpecBlockMember_::ModifiesOf { targets, .. } => {
+                SpecBlockMember_::ModifiesOf {
+                    fun_param, targets, ..
+                } => {
+                    p.type_lambda_pair
+                        .push((m.loc.start(), fun_param.loc.end()));
                     for tar in targets.iter() {
                         collect_expr(p, tar);
                     }
                 }
-                SpecBlockMember_::Reads { types } | SpecBlockMember_::ReadsOf { types, .. } => {
+                SpecBlockMember_::Reads { types } => {
+                    for ty in types {
+                        collect_ty(p, ty);
+                    }
+                }
+                SpecBlockMember_::ReadsOf {
+                    types, fun_param, ..
+                } => {
+                    p.type_lambda_pair
+                        .push((m.loc.start(), fun_param.loc.end()));
                     for ty in types {
                         collect_ty(p, ty);
                     }

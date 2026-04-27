@@ -15,15 +15,15 @@ module Specs::HigherOrder {
 
         spec {
             invariant i <= len;
-            invariant forall j in 0..i: !result_of<pred> (v[j]);
+            invariant forall j in 0..i: !result_of<pred>(v[j]);
         };
         false
     }
 
     spec contains {
-        requires forall x in 0..len(v): !aborts_of<pred> (v[x]);
+        requires forall x in 0..len(v): !aborts_of<pred>(v[x]);
         aborts_if false;
-        ensures result == (exists k in 0..len(v): result_of<pred> (v[k]));
+        ensures result == (exists k in 0..len(v): result_of<pred>(v[k]));
     }
 
     spec fun spec_reduce(
@@ -32,7 +32,7 @@ module Specs::HigherOrder {
         if (end == 0) val
         else {
             let val = spec_reduce(reducer, v, val, end - 1);
-            result_of<reducer> (val, v[end - 1])
+            result_of<reducer>(val, v[end - 1])
         }
     }
 
@@ -63,7 +63,7 @@ module Specs::HigherOrder {
     }
 
     spec apply_void_mut {
-        ensures x == result_of<f> (old(x));
+        ensures x == result_of<f>(old(x));
     }
 
     fun apply_mut(f: |&mut u64| u64, x: &mut u64): u64 {
@@ -71,7 +71,7 @@ module Specs::HigherOrder {
     }
 
     spec apply_mut {
-        ensures ensures_of<f> (old(x), result, x);
+        ensures ensures_of<f>(old(x), result, x);
     }
 
     fun apply_mut_result(f: |&mut u64| u64, x: &mut u64): u64 {
@@ -79,16 +79,16 @@ module Specs::HigherOrder {
     }
 
     spec apply_mut_result {
-        ensures (result, x) == result_of<f> (old(x));
+        ensures (result, x) == result_of<f>(old(x));
     }
 
     spec apply_mut_extract {
         ensures result == {
-            let (r, _p) = result_of<f> (old(x));
+            let (r, _p) = result_of<f>(old(x));
             r
         };
         ensures x == {
-            let (_r, p) = result_of<f> (old(x));
+            let (_r, p) = result_of<f>(old(x));
             p
         };
     }

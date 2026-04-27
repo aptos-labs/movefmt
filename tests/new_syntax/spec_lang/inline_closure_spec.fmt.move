@@ -25,6 +25,6 @@ module Specs::InlineClosure {
 
     spec apply_opaque {
         pragma opaque = true;
-        ensures ensures_of<f> (x, result);
+        ensures ensures_of<f>(x, result);
     }
 }
