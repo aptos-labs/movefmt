@@ -8,6 +8,7 @@
 </tr>
 <tr>
 <td>
+<a href="#v1.5.2">v1.5.2</a><br/>
 <a href="#v1.5.1">v1.5.1</a><br/>
 <a href="#v1.5.0">v1.5.0</a><br/>
 <a href="#v1.4.9">v1.4.9</a><br/>
@@ -54,6 +55,15 @@
 </td>
 </tr>
 </table>
+
+
+<a id="v1.5.2"></a>
+## 2026-04-27, Version v1.5.2
+* [[`7fd274f`](https://github.com/movebit/movefmt/commit/7fd274fcf2d98da4f59666f3ddb16ffc2e382ba3)] - fix: correct spacing in MSL2
+* [[`fddbcbd`](https://github.com/movebit/movefmt/commit/fddbcbdf4489ad0624c3b99f081b3123e9603cad)] - fix: restore binary operator spacing in proof/calc blocks and improve proof layout
+* [[`a70fb82`](https://github.com/movebit/movefmt/commit/a70fb825793d994e222d0f9a2b286aa9b865e4a4)] - add UT for MSL2 syntax
+* [[`3f8d479`](https://github.com/movebit/movefmt/commit/3f8d4791d4d435abc40001811bfd2ac32750c290)] - support Modifies in TokenTree's parser
+* [[`e443962`](https://github.com/movebit/movefmt/commit/e4439622a98f3333d3f6007ad2c6b1f89fb7f8f1)] - update aptos-core dependence, fix build error
 
 
 <a id="v1.5.1"></a>
