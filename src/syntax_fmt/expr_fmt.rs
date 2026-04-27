@@ -84,12 +84,21 @@ static SPEC_KEYWORDS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         "emits",
         "requires",
         "global",
+        "proof",
+        "modifies_of",
+        "ensures_of",
+        "aborts_of",
+        "reads_of",
+        "reads",
+        "writes",
+        "writes_of",
     ]
     .iter()
     .cloned()
     .collect()
 });
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokType {
     /// abc like token, e.g., 'if', 'let', 'my_var'
     Alphabet,
@@ -398,6 +407,20 @@ pub(crate) fn need_space(current: &TokenTree, next: Option<&TokenTree>) -> bool 
     let curr_start_tok = current.get_start_tok();
     let curr_end_tok = current.get_end_tok();
     let next_start_tok = next_token_tree.get_start_tok();
+
+    if curr_end_tok == Tok::Greater && next_start_tok == Tok::LParen {
+        return is_bin_current;
+    }
+    if curr_end_tok == Tok::PeriodPeriod && matches!(next_start_tok, Tok::Pipe | Tok::PipeTilde) {
+        return true;
+    }
+    if TokType::from(curr_start_tok) == TokType::Alphabet && next_start_tok == Tok::PeriodPeriod {
+        if let Some(content) = current.simple_str() {
+            if SPEC_KEYWORDS.contains(content) {
+                return true;
+            }
+        }
+    }
 
     if Tok::Greater == curr_end_tok {
         if let TokType::Alphabet = TokType::from(next_start_tok) {
