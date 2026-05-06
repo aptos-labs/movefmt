@@ -288,15 +288,14 @@ impl<'a> Parser<'a> {
 impl<'a> Parser<'a> {
     fn add_simple_note(&self, pos: u32) -> Option<Note> {
         if self.unary_op.contains(&pos) {
-            return Some(Note::UnaryOp);
+            Some(Note::UnaryOp)
+        } else if self.bin_op.contains(&pos) {
+            Some(Note::BinaryOP)
+        } else if self.apple_name.contains(&pos) {
+            Some(Note::ApplyName)
+        } else {
+            None
         }
-        if self.bin_op.contains(&pos) {
-            return Some(Note::BinaryOP);
-        }
-        if self.apple_name.contains(&pos) {
-            return Some(Note::ApplyName);
-        }
-        None
     }
 
     pub fn parse_tokens(mut self) -> Vec<TokenTree> {
@@ -308,7 +307,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
             ret.push(TokenTree::SimpleToken {
-                content: self.lexer.content().to_owned(),
+                content: self.lexer.content().to_string(),
                 pos: self.lexer.start_loc() as u32,
                 tok: self.lexer.peek(),
                 note: self.add_simple_note(self.lexer.start_loc() as u32),
@@ -367,12 +366,10 @@ impl<'a> Parser<'a> {
         if self.fun_body.contains(&start) {
             note = Some(Note::FunBody);
         }
-        for (idx, (addr, modname)) in self.address_module.iter().enumerate() {
-            if *addr < start && start < *modname {
-                note = Some(Note::ModuleAddress);
-                self.address_module.remove(idx);
-                break;
-            }
+        // Find and remove matching address_module entry if found
+        if let Some(idx) = self.address_module.iter().position(|(addr, modname)| *addr < start && start < *modname) {
+            note = Some(Note::ModuleAddress);
+            self.address_module.remove(idx);
         }
 
         while self.lexer.peek() != Tok::EOF {
@@ -1086,11 +1083,12 @@ impl CommentExtrator {
         let content = content.as_bytes();
 
         let mut state = ExtratorCommentState::Init;
-        const NEW_LINE: u8 = 10;
-        const SLASH: u8 = 47;
-        const STAR: u8 = 42;
-        const BLACK_SLASH: u8 = 92;
-        const QUOTE: u8 = 34;
+        // ASCII constants for comment parsing
+        const NEW_LINE: u8 = b'\n';
+        const SLASH: u8 = b'/';
+        const STAR: u8 = b'*';
+        const BACKSLASH: u8 = b'\\';
+        const QUOTE: u8 = b'"';
         let mut depth = 0;
         let mut comments = Vec::new();
         let mut comment = Vec::new();
@@ -1201,10 +1199,10 @@ impl CommentExtrator {
                 }
                 ExtratorCommentState::Quote => {
                     // handle \" or handle \\
-                    if *c == BLACK_SLASH
+                    if *c == BACKSLASH
                         && content
                             .get(index + 1)
-                            .map(|x| *x == QUOTE || *x == BLACK_SLASH)
+                            .map(|x| *x == QUOTE || *x == BACKSLASH)
                             .unwrap_or(false)
                     {
                         index += 2;
