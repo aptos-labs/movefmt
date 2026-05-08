@@ -367,7 +367,11 @@ impl<'a> Parser<'a> {
             note = Some(Note::FunBody);
         }
         // Find and remove matching address_module entry if found
-        if let Some(idx) = self.address_module.iter().position(|(addr, modname)| *addr < start && start < *modname) {
+        if let Some(idx) = self
+            .address_module
+            .iter()
+            .position(|(addr, modname)| *addr < start && start < *modname)
+        {
             note = Some(Note::ModuleAddress);
             self.address_module.remove(idx);
         }
@@ -684,6 +688,11 @@ impl<'a> Parser<'a> {
                 Exp_::ExpCall(e1, e_vec) => {
                     collect_expr(p, e1.as_ref());
                     e_vec.value.iter().for_each(|e| collect_expr(p, e));
+                }
+                Exp_::StateLabeled(_pre_label, inner_exp, _post_label) => {
+                    // Recursively process the inner expression to collect type parameters
+                    // State labels like: S1..S2 |~ ensures_of<f>(x, result)
+                    collect_expr(p, inner_exp.as_ref());
                 }
                 Exp_::Value(v) => {
                     if let Value_::Num(num) = v.value
