@@ -186,7 +186,7 @@ impl From<Tok> for TokType {
     }
 }
 
-fn token_trees_to_string(trees: &[TokenTree]) -> Vec<Vec<ChainMember>> {
+fn token_trees_to_chain_members(trees: &[TokenTree]) -> Vec<Vec<ChainMember>> {
     let mut all = Vec::with_capacity(3);
     all.push(vec![ChainMember::Field("(".to_string())]);
     let mut buf = String::with_capacity(256);
@@ -226,7 +226,7 @@ struct DotChainParser<'a> {
     toktree_vec: &'a [TokenTree],
     result: Vec<ChainMember>,
     cursor: usize,
-    last_peroid_idx: usize,
+    last_period_idx: usize,
 }
 
 impl<'a> DotChainParser<'a> {
@@ -235,7 +235,7 @@ impl<'a> DotChainParser<'a> {
             toktree_vec: elements,
             result: Vec::new(),
             cursor: 0,
-            last_peroid_idx: 0,
+            last_period_idx: 0,
         }
     }
 
@@ -261,33 +261,7 @@ impl<'a> DotChainParser<'a> {
         }
     }
 
-    fn parse_chain(&mut self) -> Option<()> {
-        let name = match self.current() {
-            TokenTree::SimpleToken { .. } => {
-                let n = self.current_word().to_string();
-                self.advance();
-                n
-            }
-            _ => return None,
-        };
-
-        let is_call = matches!(self.current_tok(), Tok::Less | Tok::LParen);
-        let args = self.parse_call_args()?; // consumes <>() or (); returns empty vec if none
-        if is_call || !args.is_empty() {
-            self.result.push(ChainMember::Call(name, args));
-        } else {
-            self.result.push(ChainMember::Field(name));
-        }
-
-        while matches!(self.current_tok(), Tok::Period) {
-            self.last_peroid_idx = self.cursor;
-            self.advance();
-            self.parse_postfix()?;
-        }
-        Some(())
-    }
-
-    fn parse_postfix(&mut self) -> Option<()> {
+    fn parse_member(&mut self) -> Option<ChainMember> {
         let name = match self.current() {
             TokenTree::SimpleToken { .. } => {
                 let n = self.current_word().to_string();
@@ -300,10 +274,23 @@ impl<'a> DotChainParser<'a> {
         // Treat as Call if followed by '<' or '('
         let is_call = matches!(self.current_tok(), Tok::Less | Tok::LParen);
         let args = self.parse_call_args()?; // consumes <>() or (); returns empty vec if none
-        if is_call || !args.is_empty() {
-            self.result.push(ChainMember::Call(name, args));
+
+        Some(if is_call || !args.is_empty() {
+            ChainMember::Call(name, args)
         } else {
-            self.result.push(ChainMember::Field(name));
+            ChainMember::Field(name)
+        })
+    }
+
+    fn parse_chain(&mut self) -> Option<()> {
+        let member = self.parse_member()?;
+        self.result.push(member);
+
+        while matches!(self.current_tok(), Tok::Period) {
+            self.last_period_idx = self.cursor;
+            self.advance();
+            let member = self.parse_member()?;
+            self.result.push(member);
         }
         Some(())
     }
@@ -323,14 +310,14 @@ impl<'a> DotChainParser<'a> {
         };
 
         self.advance();
-        Some(token_trees_to_string(&elements))
+        Some(token_trees_to_chain_members(&elements))
     }
 }
 
 pub fn parse_dot_chain(trees: &[TokenTree]) -> Option<(Vec<ChainMember>, usize)> {
     let mut p = DotChainParser::new(trees);
     p.parse_chain()
-        .and_then(|_| Some((p.result, p.last_peroid_idx)))
+        .and_then(|_| Some((p.result, p.last_period_idx)))
 }
 
 fn is_to_or_except(token: &Option<&TokenTree>) -> bool {
@@ -402,7 +389,7 @@ pub(crate) fn need_space(current: &TokenTree, next: Option<&TokenTree>) -> bool 
         .map(|x| x == Note::ApplyName)
         .unwrap_or_default();
 
-    let is_to_execpt = is_to_or_except(&Some(current)) || is_to_or_except(&next);
+    let is_to_except = is_to_or_except(&Some(current)) || is_to_or_except(&next);
 
     let curr_start_tok = current.get_start_tok();
     let curr_end_tok = current.get_end_tok();
@@ -483,7 +470,7 @@ pub(crate) fn need_space(current: &TokenTree, next: Option<&TokenTree>) -> bool 
                 return true;
             }
             if is_apply_next {
-                return is_to_execpt;
+                return is_to_except;
             }
             matches!(
                 curr_start_tok,
@@ -508,7 +495,7 @@ pub(crate) fn need_space(current: &TokenTree, next: Option<&TokenTree>) -> bool 
             }
 
             if is_apply_current {
-                is_to_execpt
+                is_to_except
             } else {
                 if is_next_tok_nested && next_tok_nested_kind == NestKind_::Brace {
                     return true;
