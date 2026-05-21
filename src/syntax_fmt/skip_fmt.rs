@@ -6,6 +6,7 @@ use crate::core::token_tree::*;
 use move_compiler::parser::ast::*;
 use move_compiler::shared::ast_debug;
 use move_ir_types::location::*;
+use std::collections::HashSet;
 use std::{cell::RefCell, sync::Arc};
 
 use super::syntax_trait::{Preprocessor, SingleSyntaxExtractor};
@@ -19,6 +20,10 @@ pub struct SkipHandler {
     pub struct_body_loc_vec: Vec<Loc>,
     pub fun_body_loc_vec: Vec<Loc>,
     pub skipped_body_loc_vec: RefCell<Vec<Loc>>,
+    pub module_end_set: HashSet<u32>,
+    pub struct_end_set: HashSet<u32>,
+    pub fun_end_set: HashSet<u32>,
+    pub skipped_end_set: RefCell<HashSet<u32>>,
     pub source: String,
 }
 
@@ -32,7 +37,7 @@ pub enum SkipType {
 
 impl SingleSyntaxExtractor for SkipHandler {
     fn new(fmt_buffer: &str) -> Self {
-        let this_skip_extractor = Self {
+        Self {
             module_attributes: vec![],
             struct_attributes: vec![],
             fun_attributes: vec![],
@@ -40,9 +45,12 @@ impl SingleSyntaxExtractor for SkipHandler {
             struct_body_loc_vec: vec![],
             fun_body_loc_vec: vec![],
             skipped_body_loc_vec: vec![].into(),
+            module_end_set: HashSet::new(),
+            struct_end_set: HashSet::new(),
+            fun_end_set: HashSet::new(),
+            skipped_end_set: RefCell::new(HashSet::new()),
             source: fmt_buffer.to_string(),
-        };
-        this_skip_extractor
+        }
     }
 
     fn collect_seq_item(&mut self, _s: &SequenceItem) {}
@@ -58,22 +66,25 @@ impl SingleSyntaxExtractor for SkipHandler {
     fn collect_struct(&mut self, s: &StructDefinition) {
         self.struct_attributes.push(s.attributes.clone());
         self.struct_body_loc_vec.push(s.loc);
+        self.struct_end_set.insert(s.loc.end());
     }
 
     fn collect_function(&mut self, d: &Function) {
         self.fun_attributes.push(d.attributes.clone());
         self.fun_body_loc_vec.push(d.body.loc);
+        self.fun_end_set.insert(d.body.loc.end());
     }
 
     fn collect_module(&mut self, d: &ModuleDefinition) {
         self.module_attributes.push(d.attributes.clone());
         self.module_body_loc_vec.push(d.loc);
+        self.module_end_set.insert(d.loc.end());
+
         for m in d.members.iter() {
-            if let ModuleMember::Function(x) = &m {
-                self.collect_function(x)
-            }
-            if let ModuleMember::Struct(x) = &m {
-                self.collect_struct(x)
+            match m {
+                ModuleMember::Function(x) => self.collect_function(x),
+                ModuleMember::Struct(x) => self.collect_struct(x),
+                _ => {}
             }
         }
     }
@@ -113,37 +124,48 @@ impl Preprocessor for SkipHandler {
 
 impl SkipHandler {
     pub(crate) fn should_skip_block_body(&self, kind: &NestKind, skip_type: SkipType) -> bool {
-        if SkipType::SkipNone == skip_type {
+        if skip_type == SkipType::SkipNone {
             return false;
         }
-        let (body_attributes, body_loc_vec) = match skip_type {
-            SkipType::SkipModuleBody => (&self.module_attributes, &self.module_body_loc_vec),
-            SkipType::SkipStructBody => (&self.struct_attributes, &self.struct_body_loc_vec),
-            SkipType::SkipFunBody => (&self.fun_attributes, &self.fun_body_loc_vec),
-            _ => (&vec![], &vec![]),
+
+        let (body_attributes, body_loc_vec, end_set) = match skip_type {
+            SkipType::SkipModuleBody => (
+                &self.module_attributes,
+                &self.module_body_loc_vec,
+                &self.module_end_set,
+            ),
+            SkipType::SkipStructBody => (
+                &self.struct_attributes,
+                &self.struct_body_loc_vec,
+                &self.struct_end_set,
+            ),
+            SkipType::SkipFunBody => (
+                &self.fun_attributes,
+                &self.fun_body_loc_vec,
+                &self.fun_end_set,
+            ),
+            _ => return false,
         };
+
+        let target_end = kind.end_pos + 1;
+        if !end_set.contains(&target_end) {
+            return false;
+        }
 
         let len = body_loc_vec.len();
         let mut left = 0;
         let mut right = len;
 
         while left < right {
-            if kind.end_pos < body_loc_vec[left].start()
-                || kind.start_pos > body_loc_vec[right - 1].end()
-            {
-                return false;
-            }
-
             let mid = left + (right - left) / 2;
             let mid_loc = body_loc_vec[mid];
-            let mid_body_loc = body_loc_vec[mid];
 
-            if kind.end_pos + 1 == mid_body_loc.end() {
+            if target_end == mid_loc.end() {
                 for attribute in &body_attributes[mid] {
                     let attribute_str = ast_debug::display(&attribute.value);
                     if attribute_str.contains("#[fmt::skip]") {
                         tracing::trace!("{:?}", attribute_str);
-                        self.skipped_body_loc_vec.borrow_mut().push(mid_body_loc);
+                        self.skipped_end_set.borrow_mut().insert(target_end);
                         return true;
                     }
                 }
@@ -159,26 +181,11 @@ impl SkipHandler {
     }
 
     pub(crate) fn has_skipped_module_body(&self, kind: &NestKind) -> bool {
-        for skipped_block in self.skipped_body_loc_vec.borrow().iter() {
-            if kind.end_pos + 1 == skipped_block.end() {
-                return true;
-            }
-        }
-
-        false
+        self.skipped_end_set.borrow().contains(&(kind.end_pos + 1))
     }
 
     pub(crate) fn is_module_block(&self, kind: &NestKind) -> bool {
-        if kind.kind != NestKind_::Brace {
-            return false;
-        }
-        for module_block in &self.module_body_loc_vec {
-            if kind.end_pos + 1 == module_block.end() {
-                return true;
-            }
-        }
-
-        false
+        kind.kind == NestKind_::Brace && self.module_end_set.contains(&(kind.end_pos + 1))
     }
 }
 
