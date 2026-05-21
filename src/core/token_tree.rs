@@ -7,7 +7,6 @@ use move_compiler::parser::ast::Definition;
 use move_compiler::parser::ast::*;
 use move_compiler::parser::lexer::{Lexer, Tok};
 use move_compiler::shared::Identifier;
-use std::cmp::Ordering;
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
@@ -327,12 +326,10 @@ impl<'a> Parser<'a> {
             NestKind_::Type | NestKind_::Lambda => {
                 let pos = self.lexer.start_loc() as u32;
                 // try drop
-                for (_, end) in &self.type_lambda_pair[self.type_lambda_pair_index..] {
-                    if end < &pos {
-                        self.type_lambda_pair_index += 1;
-                    } else {
-                        break;
-                    }
+                while self.type_lambda_pair_index < self.type_lambda_pair.len()
+                    && self.type_lambda_pair[self.type_lambda_pair_index].1 < pos
+                {
+                    self.type_lambda_pair_index += 1;
                 }
 
                 if let Some((start, end)) = self.type_lambda_pair[self.type_lambda_pair_index..]
@@ -437,15 +434,7 @@ impl<'a> Parser<'a> {
             .iter()
             .for_each(|x| debug_assert!(x.0 <= x.1));
 
-        self.type_lambda_pair.sort_by(|x, y| {
-            debug_assert!(x.0 != y.0, "{:?}?{:?}", x, y);
-            let ord = x.0.cmp(&y.0);
-            if ord == Ordering::Equal {
-                x.1.cmp(&y.1)
-            } else {
-                ord
-            }
-        });
+        self.type_lambda_pair.sort_by_key(|x| (x.0, x.1));
 
         fn collect_definition(p: &mut Parser, d: &Definition) {
             match d {
@@ -1106,9 +1095,10 @@ impl CommentExtrator {
 
         macro_rules! make_comment {
             () => {
+                let taken = std::mem::take(&mut comment);
                 comments.push(Comment {
-                    start_offset: (index as u32) + 1 - (comment.len() as u32),
-                    content: String::from_utf8(comment.clone()).unwrap(),
+                    start_offset: (index as u32) + 1 - (taken.len() as u32),
+                    content: String::from_utf8(taken).unwrap(),
                 });
                 comment.clear();
                 if state == ExtratorCommentState::InlineComment {
