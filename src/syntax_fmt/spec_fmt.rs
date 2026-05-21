@@ -253,9 +253,8 @@ fn collect_long_header_edits(
             continue;
         }
 
-        let mut line_mapping = FileLineMappingOneFile::default();
-        line_mapping.update(raw_buffer);
-        let start_line = line_mapping
+        let start_line = spec_extractor
+            .line_mapping
             .translate(fun_loc.start(), fun_loc.start())
             .unwrap()
             .start
@@ -295,93 +294,75 @@ fn collect_pragma_edits(
     let mut edits = Vec::new();
 
     for (idx, pragma_loc) in spec_extractor.spec_pragma_loc_vec.iter().enumerate() {
-        if spec_extractor.spec_pragma_properties_num_vec.len() > idx
-            && spec_extractor.spec_pragma_properties_num_vec[idx] > 4
-            && !contains_comment(
-                &raw_buffer[pragma_loc.start() as usize..pragma_loc.end() as usize],
-            )
-        {
-            let start_line = spec_extractor
-                .line_mapping
-                .translate(pragma_loc.start(), pragma_loc.start())
-                .unwrap()
-                .start
-                .line;
-            let start_line_str = raw_buffer
-                .lines()
-                .nth(start_line as usize)
-                .unwrap_or_default();
-            let leading_space_cnt =
-                start_line_str.len() - start_line_str.trim_start_matches(char::is_whitespace).len();
-            let mut insert_str = "\n".to_string();
-            insert_str.push_str(
-                " ".to_string()
-                    .repeat(config.indent_size() + leading_space_cnt)
-                    .as_str(),
-            );
+        let prop_count = match spec_extractor.spec_pragma_properties_num_vec.get(idx) {
+            Some(&n) if n > 4 => n,
+            _ => continue,
+        };
 
-            let mut lexer = Lexer::new(
-                &raw_buffer[pragma_loc.start() as usize..pragma_loc.end() as usize],
-                FileHash::empty(),
-            );
-            let mut last_idx = pragma_loc.start() as usize;
-            let mut tmp_str_vec = vec![];
-            let mut insert_loc_vec = vec![];
-            lexer.advance().unwrap();
-            while lexer.peek() != Tok::EOF {
-                if lexer.peek() == Tok::Comma {
-                    insert_loc_vec.push(pragma_loc.start() + lexer.start_loc() as u32);
-                    let tmp_str = raw_buffer
-                        [last_idx..pragma_loc.start() as usize + lexer.start_loc() + 1]
-                        .replace('\n', "")
-                        .split_whitespace()
-                        .collect::<Vec<&str>>()
-                        .join(" ");
-                    if tmp_str_vec.is_empty() {
-                        tmp_str_vec.push(tmp_str.clone());
-                    } else {
-                        tmp_str_vec.push(tmp_str.clone().trim_start().to_string());
-                    }
-                    last_idx = pragma_loc.start() as usize + lexer.start_loc() + 1;
-                }
-                lexer.advance().unwrap();
-            }
+        let pragma_start = pragma_loc.start() as usize;
+        let pragma_end = pragma_loc.end() as usize;
+        let pragma_text = &raw_buffer[pragma_start..pragma_end];
 
-            // build pragma_str by inserting insert_str before each subsequent item
-            let mut pragma_str = "".to_string();
-            if tmp_str_vec.is_empty() {
-                // fallback: use original trimmed region
-                pragma_str +=
-                    raw_buffer[pragma_loc.start() as usize..pragma_loc.end() as usize].trim_start();
-            } else {
-                pragma_str += tmp_str_vec[0].as_str();
-                for item in tmp_str_vec.iter().skip(1) {
-                    pragma_str += &insert_str;
-                    pragma_str += item;
-                }
-                pragma_str += &insert_str;
-                let tmp_str = &raw_buffer[last_idx..pragma_loc.end() as usize];
-                pragma_str += tmp_str.trim_start();
-            }
-
-            tracing::trace!("pragma_str = \n{}", pragma_str);
-            tracing::trace!(
-                "pragma_str.len = {}, pragma_loc.len = {}",
-                pragma_str.len(),
-                pragma_loc.end() - pragma_loc.start()
-            );
-
-            let start = pragma_loc.start() as usize;
-            let end = pragma_loc.end() as usize;
-            edits.push(TextEdit {
-                start,
-                end,
-                text: pragma_str,
-            });
+        if contains_comment(pragma_text) {
+            continue;
         }
+        let start_line = spec_extractor
+            .line_mapping
+            .translate(pragma_loc.start(), pragma_loc.start())
+            .unwrap()
+            .start
+            .line;
+        let start_line_str = raw_buffer
+            .lines()
+            .nth(start_line as usize)
+            .unwrap_or_default();
+        let leading_spaces = start_line_str.len() - start_line_str.trim_start().len();
+        let newline_indent = format!("\n{}", " ".repeat(config.indent_size() + leading_spaces));
+
+        let mut segments = Vec::with_capacity(prop_count);
+        let mut last_idx = pragma_start;
+
+        let mut lexer = Lexer::new(pragma_text, FileHash::empty());
+        lexer.advance().unwrap();
+        while lexer.peek() != Tok::EOF {
+            if lexer.peek() == Tok::Comma {
+                let seg = &raw_buffer[last_idx..pragma_start + lexer.start_loc() + 1];
+                segments.push(normalize_segment(seg));
+                last_idx = pragma_start + lexer.start_loc() + 1;
+            }
+            lexer.advance().unwrap();
+        }
+        segments.push(normalize_segment(&raw_buffer[last_idx..pragma_end]));
+
+        let mut pragma_str = segments[0].clone();
+        for seg in &segments[1..] {
+            pragma_str.push_str(&newline_indent);
+            pragma_str.push_str(seg);
+        }
+
+        tracing::trace!("pragma_str = \n{}", pragma_str);
+        tracing::trace!(
+            "pragma_str.len = {}, pragma_loc.len = {}",
+            pragma_str.len(),
+            pragma_loc.end() - pragma_loc.start()
+        );
+
+        edits.push(TextEdit {
+            start: pragma_start,
+            end: pragma_end,
+            text: pragma_str,
+        });
     }
 
     edits
+}
+
+#[inline]
+fn normalize_segment(seg: &str) -> String {
+    seg.replace('\n', "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Apply a batch of edits to fmt_buffer. Edits are expected to be relative to the original buffer.
