@@ -8,6 +8,7 @@
 </tr>
 <tr>
 <td>
+<a href="#v1.5.3">v1.5.3</a><br/>
 <a href="#v1.5.2">v1.5.2</a><br/>
 <a href="#v1.5.1">v1.5.1</a><br/>
 <a href="#v1.5.0">v1.5.0</a><br/>
@@ -55,6 +56,17 @@
 </td>
 </tr>
 </table>
+
+
+<a id="v1.5.3"></a>
+## 2026-05-22, Version v1.5.3
+* [[`ddf2b69`](https://github.com/movebit/movefmt/commit/ddf2b69996e871e50a34c7a5a9dec5b1cd4dfca6)] - refactor: streamline pragma reformatting and deduplicate logic
+* [[`f89e792`](https://github.com/movebit/movefmt/commit/f89e7921a83048c8ddf5c19639ed30eca7177e91)] - feat: optimize skip detection with HashSet-based O(1) lookups
+* [[`9352dd2`](https://github.com/movebit/movefmt/commit/9352dd22baa8cefb6fd8fff1ce92b760c1fdc860)] - refactor(expr_fmt): extract  to eliminate duplication
+* [[`39e2911`](https://github.com/movebit/movefmt/commit/39e291124435e47585e3547ba3151aa720faaedd)] - Optimize token tree parsing and comment extraction
+* [[`7478a22`](https://github.com/movebit/movefmt/commit/7478a22a83f6580e3334457aadfc0631aa30432e)] - update aptos-core dependence
+* [[`df06902`](https://github.com/movebit/movefmt/commit/df06902d4bdfa94a154dbed1c9b217c7e460b6d9)] - TokenTree: add support for StateLabeled expressions
+* [[`59cf7f1`](https://github.com/movebit/movefmt/commit/59cf7f1cb0a250ce60be6114c1127e752572169d)] - refactor(token_tree): code quality improvements
 
 
 <a id="v1.5.2"></a>

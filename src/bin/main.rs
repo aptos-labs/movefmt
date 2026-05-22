@@ -500,7 +500,7 @@ fn print_usage_to_stdout(opts: &Options, reason: &str) {
 }
 
 fn print_version() {
-    println!("movefmt v1.5.2");
+    println!("movefmt v1.5.3");
 }
 
 fn determine_operation(matches: &Matches) -> Result<Operation, OperationError> {
