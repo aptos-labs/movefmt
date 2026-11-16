@@ -8,6 +8,7 @@
 </tr>
 <tr>
 <td>
+<a href="#v1.5.4">v1.5.4</a><br/>
 <a href="#v1.5.3">v1.5.3</a><br/>
 <a href="#v1.5.2">v1.5.2</a><br/>
 <a href="#v1.5.1">v1.5.1</a><br/>
@@ -57,6 +58,10 @@
 </tr>
 </table>
 
+
+<a id="v1.5.4"></a>
+## 2026-11-15, Version v1.5.4
+* [[`e79838f`](https://github.com/movebit/movefmt/commit/e79838f9385ae489707e337e338f49c544b8f597)] - feat: format the `[weight = N]` spec annotation on spec functions, quantifiers and `forall .. apply`
 
 <a id="v1.5.3"></a>
 ## 2026-05-22, Version v1.5.3
