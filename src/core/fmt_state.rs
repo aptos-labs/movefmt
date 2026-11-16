@@ -8,6 +8,7 @@
 //! replacing the original mutable state design based on RefCell/Cell.
 
 use crate::core::token_tree::*;
+use crate::core::weight::{parse_defs, parse_for_format};
 use crate::syntax_fmt::bin_op_fmt::BinOpHandler;
 use crate::syntax_fmt::branch_fmt::BranchHandler;
 use crate::syntax_fmt::call_fmt::*;
@@ -22,8 +23,8 @@ use commentfmt::comment::contains_comment;
 use commentfmt::{Config, Verbosity};
 use move_command_line_common::files::FileHash;
 use move_compiler::diagnostics::Diagnostics;
+use move_compiler::parser::ast::*;
 use move_compiler::parser::lexer::{Lexer, Tok};
-use move_compiler::parser::{ast::*, syntax::parse_file_string};
 use move_ir_types::location::ByteIndex;
 use std::sync::{Arc, LazyLock};
 use tracing::debug;
@@ -308,10 +309,12 @@ impl FunctionalFormat {
     pub fn generate_token_tree(
         &mut self,
         defs: Vec<Definition>,
+        weight_starts: std::collections::HashSet<u32>,
         content: &str,
     ) -> Result<String, Diagnostics> {
         let lexer = Lexer::new(content, FileHash::empty());
-        let parse = crate::core::token_tree::Parser::new(lexer, &defs, content);
+        let parse =
+            crate::core::token_tree::Parser::with_weights(lexer, &defs, content, weight_starts);
         self.token_tree = parse.parse_tokens();
 
         let defs = Arc::new(defs);
@@ -375,9 +378,7 @@ impl FunctionalFormat {
                 state.output = return_buf_cp;
             } else if is_addr_blk {
                 let fmt_buf = state.output.clone();
-                let def_vec_result =
-                    parse_file_string(&mut get_compile_env(), FileHash::empty(), &fmt_buf);
-                let def_vec = def_vec_result.unwrap_or_default().0;
+                let def_vec = parse_defs(&fmt_buf).unwrap_or_default();
 
                 let mut last_mod_end_loc = 0;
                 let mut fmt_slice = String::new();
@@ -1119,6 +1120,7 @@ impl FunctionalFormat {
         b_add_indent: bool,
         b_add_space_at_bound: bool,
         nested_token_head: Tok,
+        is_attribute: bool,
     ) -> FormatState {
         // step5
         let (state_result, _, _) = self.add_comments(
@@ -1147,7 +1149,7 @@ impl FunctionalFormat {
                 state.last_line()
             );
             let mut b_break_line_before_kind_end = true;
-            if nested_token_head == Tok::If || kind.kind == NestKind_::Type {
+            if nested_token_head == Tok::If || kind.kind == NestKind_::Type || is_attribute {
                 // 20240426 -- for [] and <>  don't add new line
                 // 20240801 -- for <>  don't add new line
                 b_break_line_before_kind_end = false;
@@ -1445,8 +1447,13 @@ impl FunctionalFormat {
         if note.map_or(false, |x| x == Note::FunBody) {
             state = self.process_fn_header(state);
         }
-        let (mut b_new_line_mode, opt_component_break_mode) =
+        let (mut b_new_line_mode, mut opt_component_break_mode) =
             self.get_break_mode_begin_nested(&state, nested_token, delimiter);
+        if *note == Some(Note::SpaceBefore) {
+            // A `[weight = N]` annotation stays on one line.
+            b_new_line_mode = false;
+            opt_component_break_mode = None;
+        }
 
         let mut b_add_indent = true;
         for i in 0..elements.len() {
@@ -1460,6 +1467,18 @@ impl FunctionalFormat {
             {
                 break;
             }
+        }
+
+        if attribute_needs_new_line(
+            nested_token,
+            &self.content,
+            state.pre_simple_token.end_pos(),
+            state.last_line(),
+            self.global_cfg.max_width(),
+        ) {
+            let cur_nested_kind = state.cur_nested_kind;
+            let leading_space_cnt = self.get_last_line_leading_space_cnt(&mut state);
+            state = self.handle_split_line(state, cur_nested_kind, leading_space_cnt);
         }
 
         let nested_token_head = state.get_pre_simple_tok();
@@ -1491,10 +1510,18 @@ impl FunctionalFormat {
             b_add_indent,
             b_add_space_at_bound,
             nested_token_head,
+            *note == Some(Note::SpaceBefore),
         );
 
         // step8 -- format end_token
-        state = self.format_token_trees_internal(state, &kind.end_token_tree(), None, false);
+        let mut end_token = kind.end_token_tree();
+        if *note == Some(Note::SpaceBefore) {
+            // The closing bracket of a `[weight = N]` annotation stays on its line.
+            if let TokenTree::SimpleToken { note: n, .. } = &mut end_token {
+                *n = Some(Note::InAttribute);
+            }
+        }
+        state = self.format_token_trees_internal(state, &end_token, None, false);
         if expr_fmt::need_space(nested_token, next_token) {
             if nested_token_head == Tok::NumSign && kind.kind == NestKind_::Bracket {
                 return state;
@@ -1668,11 +1695,18 @@ impl FunctionalFormat {
         new_line_after_cmt: bool,
     ) -> FormatState {
         let TokenTree::SimpleToken {
-            content, pos, tok, ..
+            content,
+            pos,
+            tok,
+            note,
         } = token
         else {
             return state;
         };
+        if *note == Some(Note::InAttribute) {
+            // Blank lines inside a `[weight = N]` annotation are not kept.
+            return state;
+        }
         let pre_simple_token = &state.pre_simple_token;
         let source = &self.content;
 
@@ -2381,7 +2415,7 @@ impl FunctionalFormat {
         note: Option<Note>,
         next: Option<&TokenTree>,
     ) -> bool {
-        if pre_tok == Tok::AtSign {
+        if pre_tok == Tok::AtSign || note == Some(Note::InAttribute) {
             return false;
         }
 
@@ -2421,11 +2455,11 @@ pub fn format_entry(content: impl AsRef<str>, config: Config) -> Result<String, 
     let content = content.as_ref();
 
     // https://github.com/movebit/movefmt/issues/2
-    let (defs, _) = parse_file_string(&mut get_compile_env(), FileHash::empty(), content)?;
+    let parsed = parse_for_format(content)?;
 
     let mut full_fmt = FunctionalFormat::new(config.clone(), content);
 
-    full_fmt.generate_token_tree(defs, content)?;
+    full_fmt.generate_token_tree(parsed.defs, parsed.weight_starts, content)?;
     timer = timer.done_parsing();
 
     let result = full_fmt.format_token_trees();

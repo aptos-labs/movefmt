@@ -150,6 +150,10 @@ pub enum Note {
     ModuleAddress,
     /// This is a module definition.
     ModuleDef,
+    /// The brackets of a `[weight = N]` annotation, which get a space before them.
+    SpaceBefore,
+    /// A token inside a `[weight = N]` annotation, which is never broken across lines.
+    InAttribute,
     /// default
     Unkownwn,
 }
@@ -260,11 +264,24 @@ pub struct Parser<'a> {
     apple_name: HashSet<u32>,
     address_module: Vec<(u32, u32)>,
     module_body: HashSet<u32>, // end pos.
+    /// Start positions of the `[` of `[weight = N]` annotations.
+    weight_starts: HashSet<u32>,
     source: &'a str,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(lexer: Lexer<'a>, defs: &'a [Definition], source: &'a str) -> Self {
+        Self::with_weights(lexer, defs, source, HashSet::new())
+    }
+
+    /// Like `new`, for a source whose `[weight = N]` annotations start at
+    /// `weight_starts`.
+    pub fn with_weights(
+        lexer: Lexer<'a>,
+        defs: &'a [Definition],
+        source: &'a str,
+        weight_starts: HashSet<u32>,
+    ) -> Self {
         let mut x = Self {
             lexer,
             defs,
@@ -277,6 +294,7 @@ impl<'a> Parser<'a> {
             apple_name: Default::default(),
             address_module: vec![],
             module_body: Default::default(),
+            weight_starts,
             source,
         };
         x.collect_various_information();
@@ -399,6 +417,14 @@ impl<'a> Parser<'a> {
 
         if note.is_none() && kind == NestKind_::Brace && self.module_body.contains(&(end + 1)) {
             note = Some(Note::ModuleDef);
+        }
+        if note.is_none() && kind == NestKind_::Bracket && self.weight_starts.contains(&start) {
+            note = Some(Note::SpaceBefore);
+            for t in ret.iter_mut() {
+                if let TokenTree::SimpleToken { note: n @ None, .. } = t {
+                    *n = Some(Note::InAttribute);
+                }
+            }
         }
 
         TokenTree::Nested {
@@ -926,6 +952,38 @@ fn analyzer_token_tree_length_(ret: &mut usize, token_tree: &TokenTree, max: usi
             *ret += 2; // for delimiter.
         }
     }
+}
+
+/// Whether a `[weight = N]` annotation that does not fit on the current line should move
+/// to the next one as a whole. It stays put after a comment, which would otherwise start
+/// the continuation line.
+pub(crate) fn attribute_needs_new_line(
+    nested: &TokenTree,
+    source: &str,
+    pre_end: u32,
+    last_line: &str,
+    max_width: usize,
+) -> bool {
+    let TokenTree::Nested {
+        elements,
+        kind,
+        note: Some(Note::SpaceBefore),
+    } = nested
+    else {
+        return false;
+    };
+    let attr_len = elements
+        .iter()
+        .map(|e| e.simple_str().map_or(0, |s| s.len() + 1))
+        .sum::<usize>()
+        + 1;
+    let gap = source
+        .get(pre_end as usize..kind.start_pos as usize)
+        .unwrap_or_default();
+    !last_line.trim().is_empty()
+        && last_line.trim_end().len() + 1 + attr_len > max_width
+        && !gap.contains("//")
+        && !gap.contains("/*")
 }
 
 /// analyzer How long is list of token_tree

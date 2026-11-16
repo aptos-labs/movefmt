@@ -10,7 +10,6 @@ use commentfmt::Config;
 use move_command_line_common::files::FileHash;
 use move_compiler::parser::ast::*;
 use move_compiler::parser::lexer::{Lexer, Tok};
-use move_compiler::parser::syntax::parse_file_string;
 use move_compiler::shared::Identifier;
 use move_ir_types::location::*;
 
@@ -303,10 +302,7 @@ impl FunHandler {
 }
 
 fn get_defs(fmt_buffer: String) -> Vec<Definition> {
-    let filehash = FileHash::empty();
-    parse_file_string(&mut get_compile_env(), filehash, &fmt_buffer)
-        .unwrap()
-        .0
+    crate::core::weight::parse_defs(&fmt_buffer).unwrap()
 }
 
 /// Format function-specifier string (e.g. `acquires Foo, Bar reads Baz`).
