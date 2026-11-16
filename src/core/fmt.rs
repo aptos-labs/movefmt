@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::core::token_tree::*;
+use crate::core::weight::{parse_defs, parse_for_format};
 use crate::syntax_fmt::bin_op_fmt::BinOpHandler;
 use crate::syntax_fmt::branch_fmt::BranchHandler;
 use crate::syntax_fmt::call_fmt::*;
@@ -17,8 +18,8 @@ use commentfmt::comment::contains_comment;
 use commentfmt::{Config, Verbosity};
 use move_command_line_common::files::FileHash;
 use move_compiler::diagnostics::Diagnostics;
+use move_compiler::parser::ast::*;
 use move_compiler::parser::lexer::{Lexer, Tok};
-use move_compiler::parser::{ast::*, syntax::parse_file_string};
 use move_ir_types::location::ByteIndex;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -203,10 +204,12 @@ impl<'a> Format<'a> {
     fn generate_token_tree(
         &mut self,
         defs: Vec<Definition>,
+        weight_starts: std::collections::HashSet<u32>,
         content: &str,
     ) -> Result<String, Diagnostics> {
         let lexer = Lexer::new(content, FileHash::empty());
-        let parse = crate::core::token_tree::Parser::new(lexer, &defs, content);
+        let parse =
+            crate::core::token_tree::Parser::with_weights(lexer, &defs, content, weight_starts);
         self.token_tree = parse.parse_tokens();
 
         let defs = Arc::new(defs);
@@ -267,9 +270,7 @@ impl<'a> Format<'a> {
                 *self.ret.borrow_mut() = return_buf_cp;
             } else if is_addr_blk {
                 let mut fmt_buf = self.ret.borrow_mut();
-                let def_vec_result =
-                    parse_file_string(&mut get_compile_env(), FileHash::empty(), &*fmt_buf);
-                let def_vec = def_vec_result.unwrap_or_default().0;
+                let def_vec = parse_defs(&fmt_buf).unwrap_or_default();
 
                 let mut last_mod_end_loc = 0;
                 let mut fmt_slice = String::new();
@@ -1006,6 +1007,7 @@ impl<'a> Format<'a> {
         b_add_indent: bool,
         b_add_space_at_bound: bool,
         nested_token_head: Tok,
+        is_attribute: bool,
     ) {
         // step5
         self.add_comments(
@@ -1034,7 +1036,7 @@ impl<'a> Format<'a> {
                 self.last_line()
             );
             let mut b_break_line_before_kind_end = true;
-            if nested_token_head == Tok::If || kind.kind == NestKind_::Type {
+            if nested_token_head == Tok::If || kind.kind == NestKind_::Type || is_attribute {
                 // 20240426 -- for [] and <>  don't add new line
                 // 20240801 -- for <>  don't add new line
                 b_break_line_before_kind_end = false;
@@ -1299,8 +1301,13 @@ impl<'a> Format<'a> {
         if note.map_or(false, |x| x == Note::FunBody) {
             self.process_fn_header();
         }
-        let (mut b_new_line_mode, opt_component_break_mode) =
+        let (mut b_new_line_mode, mut opt_component_break_mode) =
             self.get_break_mode_begin_nested(nested_token, delimiter);
+        if *note == Some(Note::SpaceBefore) {
+            // A `[weight = N]` annotation stays on one line.
+            b_new_line_mode = false;
+            opt_component_break_mode = None;
+        }
 
         let mut b_add_indent = true;
         for i in 0..elements.len() {
@@ -1312,6 +1319,18 @@ impl<'a> Format<'a> {
             } else if !(ele_str == &*NUMSIGN_STR || ele_str.is_empty()) || i > MIN_NESTED_LENGTH {
                 break;
             }
+        }
+
+        let pre_end = self.format_context.borrow().pre_simple_token.end_pos();
+        if attribute_needs_new_line(
+            nested_token,
+            self.format_context.borrow().content,
+            pre_end,
+            &self.last_line(),
+            self.global_cfg.max_width(),
+        ) {
+            let cur_nested_kind = self.format_context.borrow().cur_nested_kind;
+            self.handle_split_line(cur_nested_kind, self.get_last_line_leading_space_cnt());
         }
 
         let nested_token_head = self.get_pre_simple_tok();
@@ -1341,10 +1360,18 @@ impl<'a> Format<'a> {
             b_add_indent,
             b_add_space_at_bound,
             nested_token_head,
+            *note == Some(Note::SpaceBefore),
         );
 
         // step8 -- format end_token
-        self.format_token_trees_internal(&kind.end_token_tree(), None, false);
+        let mut end_token = kind.end_token_tree();
+        if *note == Some(Note::SpaceBefore) {
+            // The closing bracket of a `[weight = N]` annotation stays on its line.
+            if let TokenTree::SimpleToken { note: n, .. } = &mut end_token {
+                *n = Some(Note::InAttribute);
+            }
+        }
+        self.format_token_trees_internal(&end_token, None, false);
         if expr_fmt::need_space(nested_token, next_token) {
             if nested_token_head == Tok::NumSign && kind.kind == NestKind_::Bracket {
                 return;
@@ -1508,11 +1535,18 @@ impl<'a> Format<'a> {
         new_line_after_cmt: bool,
     ) {
         let TokenTree::SimpleToken {
-            content, pos, tok, ..
+            content,
+            pos,
+            tok,
+            note,
         } = token
         else {
             return;
         };
+        if *note == Some(Note::InAttribute) {
+            // Blank lines inside a `[weight = N]` annotation are not kept.
+            return;
+        }
         let pre_simple_token = &format_context.pre_simple_token;
         let source = &format_context.content;
 
@@ -2214,7 +2248,7 @@ impl<'a> Format<'a> {
         note: Option<Note>,
         next: Option<&TokenTree>,
     ) -> bool {
-        if pre_tok == Tok::AtSign {
+        if pre_tok == Tok::AtSign || note == Some(Note::InAttribute) {
             return false;
         }
 
@@ -2261,11 +2295,11 @@ pub fn format_entry(content: impl AsRef<str>, config: Config) -> Result<String, 
     let content = content.as_ref();
 
     // https://github.com/movebit/movefmt/issues/2
-    let (defs, _) = parse_file_string(&mut get_compile_env(), FileHash::empty(), content)?;
+    let parsed = parse_for_format(content)?;
 
     let mut full_fmt = Format::new(config.clone(), content, FormatContext::new(content));
 
-    full_fmt.generate_token_tree(defs, content)?;
+    full_fmt.generate_token_tree(parsed.defs, parsed.weight_starts, content)?;
     timer = timer.done_parsing();
 
     let result = full_fmt.format_token_trees();

@@ -10,7 +10,6 @@ use move_command_line_common::files::FileHash;
 use move_compiler::parser::ast::Definition;
 use move_compiler::parser::ast::*;
 use move_compiler::parser::lexer::{Lexer, Tok};
-use move_compiler::parser::syntax::parse_file_string;
 use move_compiler::shared::Identifier;
 use move_ir_types::location::*;
 use std::vec;
@@ -49,8 +48,7 @@ impl SingleSyntaxExtractor for SpecExtractor {
         };
 
         spec_extractor.line_mapping.update(&fmt_buffer);
-        let parse_result = parse_file_string(&mut get_compile_env(), FileHash::empty(), fmt_buffer);
-        let Ok((defs, _)) = parse_result else {
+        let Ok(defs) = crate::core::weight::parse_defs(fmt_buffer) else {
             return spec_extractor;
         };
         for d in defs.iter() {

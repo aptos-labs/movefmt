@@ -1,5 +1,5 @@
 use move_command_line_common::files::FileHash;
-use move_compiler::parser::{lexer::Lexer, syntax::parse_file_string};
+use move_compiler::parser::lexer::Lexer;
 use movefmt::{
     core::token_tree::{CommentExtrator, CommentExtratorErr, TokenTree},
     tools::movefmt_diff,
@@ -61,7 +61,7 @@ fn test_on_file(p: impl AsRef<Path>) -> bool {
     eprintln!("try format:{:?}", p);
     let content_origin = std::fs::read_to_string(&p).unwrap();
     {
-        match parse_file_string(&mut get_compile_env(), FileHash::empty(), &content_origin) {
+        match movefmt::core::weight::parse_defs(&content_origin) {
             Ok(_) => {}
             Err(_) => {
                 eprintln!("file '{:?}' skipped because of parse not ok", p);
@@ -162,7 +162,7 @@ fn extract_tokens(content: &str) -> Result<Vec<ExtractToken>, Vec<String>> {
     let mut line_mapping = FileLineMapping::default();
     line_mapping.update(p.clone(), &content);
     let filehash = FileHash::empty();
-    let (defs, _comments) = match parse_file_string(&mut get_compile_env(), filehash, content) {
+    let defs = match movefmt::core::weight::parse_defs(content) {
         Ok(x) => x,
         Err(d) => {
             let mut ret = Vec::with_capacity(d.len());
@@ -278,4 +278,128 @@ fn regression_test_main() {
         num += scan_dir(ten_dir.path().to_str().unwrap());
     }
     eprintln!("formated {} files", num);
+}
+
+/// Formats with both the default and the functional formatter.
+fn format_both(src: &str, config: &commentfmt::Config) -> [String; 2] {
+    [
+        movefmt::core::fmt::format_entry(src, config.clone()).unwrap(),
+        movefmt::core::fmt_state::format_entry(src, config.clone()).unwrap(),
+    ]
+}
+
+#[test]
+fn test_weight_is_never_split() {
+    let src = "module 0x42::m {
+    spec module {
+        fun a_function_with_a_rather_long_name_here(first_argument_name: num): vector<vector<u64>> [weight = 50] { vec() }
+        fun c(): bool /* [weight = 9] */ [weight = 123456] { true }
+        fun d(): bool // [weight = 8]
+            [weight = 7654321] { true }
+        fun e(): num [weight /* a comment inside the brackets that is longer than sixty-four characters */ = 6] { 1 }
+        fun g(): num [weight
+
+            = 77
+
+        ] { 1 }
+    }
+    fun f(x: u64): u64 { x }
+    spec f {
+        ensures forall first_long_binding_name: num, second_long_binding_name: num [weight = 3]: first_long_binding_name >= 0;
+        ensures forall first_long_binding_name: num, second_long_binding_name: num /* c */ [weight = 4]: true;
+    }
+}";
+    let attrs = [
+        "[weight = 50]",
+        "[weight = 123456]",
+        "[weight = 7654321]",
+        "[weight = 3]",
+        "[weight = 4]",
+        "[weight /* a comment inside the brackets that is longer than sixty-four characters */ = 6]",
+        "[weight = 77]",
+        "/* [weight = 9] */",
+        "// [weight = 8]",
+    ];
+    for width in [20, 40, 60, 90] {
+        let mut config = commentfmt::Config::default();
+        config.set().max_width(width);
+        let once = format_both(src, &config);
+        for out in &once {
+            for attr in attrs {
+                assert!(
+                    out.contains(attr),
+                    "max_width {}: `{}` split in\n{}",
+                    width,
+                    attr,
+                    out
+                );
+            }
+        }
+        let twice = [
+            movefmt::core::fmt::format_entry(&once[0], config.clone()).unwrap(),
+            movefmt::core::fmt_state::format_entry(&once[1], config.clone()).unwrap(),
+        ];
+        assert_eq!(once, twice, "max_width {} is not idempotent", width);
+    }
+}
+
+#[test]
+fn test_weight_does_not_hide_other_errors() {
+    // Still rejected, with the diagnostics of the source as written.
+    for src in [
+        "module 0x42::m { fun f() { let } spec module { fun g(): num [weight = 5] { 1 } } }",
+        "module 0x42::m { spec module { fun g(): num [weight = 5] garbage { 1 } } }",
+        "module 0x42::m { spec module { fun g(): num [weight = ] { 1 } } }",
+        "module 0x42::m { spec module { fun g(): num [weight 5] { 1 } } }",
+    ] {
+        let config = commentfmt::Config::default();
+        assert!(
+            movefmt::core::fmt::format_entry(src, config.clone()).is_err(),
+            "accepted: {src}"
+        );
+        assert!(
+            movefmt::core::fmt_state::format_entry(src, config).is_err(),
+            "accepted: {src}"
+        );
+    }
+}
+
+#[test]
+fn test_weight_only_where_the_language_allows_it() {
+    // An annotation anywhere else is rejected, as the compiler rejects it.
+    for src in [
+        "module 0x42::m [weight = 1] { fun f() {} }",
+        "module 0x42::m [weight = 1 // c\n] { fun f() {} }",
+        "address 0x42 [weight = 1] { module m { fun f() {} } }",
+        "script [weight = 1] { fun main() {} }",
+        "module 0x42::m { fun f() {} spec f [weight = 1] { ensures true; } }",
+        "module 0x42::m { struct S [weight = 1] { x: u64 } }",
+        "module 0x42::m { fun f() [weight = 1] {} }",
+    ] {
+        let config = commentfmt::Config::default();
+        assert!(
+            movefmt::core::fmt::format_entry(src, config.clone()).is_err(),
+            "accepted: {src}"
+        );
+        assert!(
+            movefmt::core::fmt_state::format_entry(src, config).is_err(),
+            "accepted: {src}"
+        );
+    }
+    // An index expression that looks like an annotation stays an expression, also in a
+    // source that has a real annotation.
+    let src = "module 0x42::m {
+    fun h(v: vector<u64>, weight: u64) {
+        let w = vector[weight = 1];
+        if (true) v[weight = 2] else v[weight = 3];
+    }
+    spec module {
+        fun g(): num [weight = 3] { 1 }
+    }
+}";
+    for out in format_both(src, &commentfmt::Config::default()) {
+        assert!(out.contains("vector[weight = 1];"), "{out}");
+        assert!(out.contains("v[weight = 2] else v[weight = 3];"), "{out}");
+        assert!(out.contains("fun g(): num [weight = 3] {"), "{out}");
+    }
 }

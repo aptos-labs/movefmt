@@ -370,6 +370,9 @@ pub(crate) fn need_space(current: &TokenTree, next: Option<&TokenTree>) -> bool 
     }
 
     let next_token_tree = next.unwrap();
+    if next_token_tree.get_note() == Some(Note::SpaceBefore) {
+        return true;
+    }
 
     let is_bin_current = current
         .get_note()

@@ -1,6 +1,6 @@
 use colored::*;
 use move_command_line_common::files::FileHash;
-use move_compiler::parser::{lexer::Lexer, syntax::parse_file_string};
+use move_compiler::parser::lexer::Lexer;
 use movefmt::{core::token_tree::TokenTree, tools::utils::*};
 use std::path::Path;
 use walkdir::WalkDir;
@@ -87,7 +87,7 @@ fn test_formatter_comparison_on_file(p: impl AsRef<Path>) -> bool {
     let content_origin = std::fs::read_to_string(&p).unwrap();
 
     // Parse check
-    match parse_file_string(&mut get_compile_env(), FileHash::empty(), &content_origin) {
+    match movefmt::core::weight::parse_defs(&content_origin) {
         Ok(_) => {}
         Err(_) => {
             eprintln!("file '{:?}' skipped because of parse not ok", p);
@@ -191,7 +191,7 @@ fn extract_tokens(content: &str) -> Result<Vec<ExtractToken>, Vec<String>> {
     let mut line_mapping = FileLineMapping::default();
     line_mapping.update(p.clone(), &content);
     let filehash = FileHash::empty();
-    let (defs, _comments) = match parse_file_string(&mut get_compile_env(), filehash, content) {
+    let defs = match movefmt::core::weight::parse_defs(content) {
         Ok(x) => x,
         Err(d) => {
             let mut ret = Vec::with_capacity(d.len());
